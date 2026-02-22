@@ -50,6 +50,13 @@ const PROPERTY_GLOSS: Record<PropertyKey, string> = {
   HOT: '熱',
 };
 
+const OBJECT_DEF_BY_NOUN: Partial<Record<NounKey, string>> = Object.values(ENTITY_DEFS).reduce((acc, def) => {
+  if (def.kind === 'object' && def.nounKey) {
+    acc[def.nounKey] = def.id;
+  }
+  return acc;
+}, {} as Partial<Record<NounKey, string>>);
+
 export class Simulation {
   private level: LevelData;
   private entities = new Map<string, EntityState>();
@@ -59,6 +66,7 @@ export class Simulation {
   private history: HistorySnapshot[] = [];
   private activeRules: ParsedRule[] = [];
   private activeProps = new Map<NounKey, Set<PropertyKey>>();
+  private activeTransforms = new Map<NounKey, NounKey>();
   private lastEvents: SimulationEvent[] = [];
 
   constructor(level: LevelData) {
@@ -141,7 +149,11 @@ export class Simulation {
       moveCount: this.moveCount,
       won: this.won,
       entities: [...this.entities.values()].map((e) => ({ ...e })),
-      activeRules: this.activeRules.map((rule): ActiveRuleView => ({ noun: rule.noun, property: rule.property })),
+      activeRules: this.activeRules.map((rule): ActiveRuleView => (
+        rule.kind === 'property'
+          ? { kind: 'property', noun: rule.noun, property: rule.property }
+          : { kind: 'transform', noun: rule.noun, targetNoun: rule.targetNoun }
+      )),
       lastEvents: [...this.lastEvents],
     };
   }
@@ -155,7 +167,13 @@ export class Simulation {
   }
 
   formatRule(rule: ActiveRuleView): string {
-    return `${NOUN_GLOSS[rule.noun]} は ${PROPERTY_GLOSS[rule.property]}`;
+    if (rule.kind === 'transform' && rule.targetNoun) {
+      return `${NOUN_GLOSS[rule.noun]} は ${NOUN_GLOSS[rule.targetNoun]}`;
+    }
+    if (rule.kind === 'property' && rule.property) {
+      return `${NOUN_GLOSS[rule.noun]} は ${PROPERTY_GLOSS[rule.property]}`;
+    }
+    return `${NOUN_GLOSS[rule.noun]} は ?`;
   }
 
   private applyMovement(direction: Direction, events: SimulationEvent[]): boolean {
@@ -353,7 +371,15 @@ export class Simulation {
   private rebuildRules(): void {
     this.activeRules = this.parseRules();
     this.activeProps = new Map();
+    this.activeTransforms = new Map();
+
     for (const rule of this.activeRules) {
+      if (rule.kind === 'transform') {
+        if (!this.activeTransforms.has(rule.noun)) {
+          this.activeTransforms.set(rule.noun, rule.targetNoun);
+        }
+        continue;
+      }
       let props = this.activeProps.get(rule.noun);
       if (!props) {
         props = new Set<PropertyKey>();
@@ -361,6 +387,8 @@ export class Simulation {
       }
       props.add(rule.property);
     }
+
+    this.applyTransformsFromRules();
   }
 
   private parseRules(): ParsedRule[] {
@@ -368,49 +396,97 @@ export class Simulation {
     const byCell = this.buildCellMap();
     const seen = new Set<string>();
 
-    const tryAxis = (x: number, y: number, dx: number, dy: number, axis: 'horizontal' | 'vertical') => {
-      const a = byCell.get(this.cellKey(x, y)) ?? [];
-      const b = byCell.get(this.cellKey(x + dx, y + dy)) ?? [];
-      const c = byCell.get(this.cellKey(x + dx * 2, y + dy * 2)) ?? [];
-
-      const nouns = a.filter((e) => {
+    const nounTextsAt = (x: number, y: number) => (byCell.get(this.cellKey(x, y)) ?? []).filter((e) => {
         const def = this.getDef(e.defId);
         return def.kind === 'text' && def.textRole === 'noun' && !!def.nounKey;
       });
-      const connectors = b.filter((e) => {
+    const topicAt = (x: number, y: number) => (byCell.get(this.cellKey(x, y)) ?? []).some((e) => {
         const def = this.getDef(e.defId);
         return def.kind === 'text' && def.textRole === 'connector' && def.connectorKey === 'TOPIC';
       });
-      const props = c.filter((e) => {
+    const propertyTextsAt = (x: number, y: number) => (byCell.get(this.cellKey(x, y)) ?? []).filter((e) => {
         const def = this.getDef(e.defId);
         return def.kind === 'text' && def.textRole === 'property' && !!def.propertyKey;
       });
+    const andAt = (x: number, y: number) => (byCell.get(this.cellKey(x, y)) ?? []).some((e) => {
+      const def = this.getDef(e.defId);
+      return def.kind === 'text' && def.textRole === 'operator' && def.operatorKey === 'AND';
+    });
+
+    const tryAxis = (x: number, y: number, dx: number, dy: number, axis: 'horizontal' | 'vertical') => {
+      const nouns = nounTextsAt(x, y);
+      if (nouns.length === 0 || !topicAt(x + dx, y + dy)) {
+        return;
+      }
 
       for (const nounEntity of nouns) {
         const nounDef = this.getDef(nounEntity.defId);
-        for (const connectorEntity of connectors) {
-          void connectorEntity;
-          for (const propEntity of props) {
+        if (!nounDef.nounKey) {
+          continue;
+        }
+
+        let offset = 2;
+        while (true) {
+          const tx = x + dx * offset;
+          const ty = y + dy * offset;
+          if (!this.isInBounds(tx, ty)) {
+            break;
+          }
+
+          const propTerms = propertyTextsAt(tx, ty);
+          const nounTerms = nounTextsAt(tx, ty);
+          let emittedAnyTerm = false;
+
+          for (const propEntity of propTerms) {
             const propDef = this.getDef(propEntity.defId);
-            if (!nounDef.nounKey || !propDef.propertyKey) {
+            if (!propDef.propertyKey) {
               continue;
             }
-            const sig = `${nounDef.nounKey}:${propDef.propertyKey}`;
+            emittedAnyTerm = true;
+            const sig = `p:${nounDef.nounKey}:${propDef.propertyKey}`;
             if (seen.has(sig)) {
               continue;
             }
             seen.add(sig);
             rules.push({
+              kind: 'property',
               noun: nounDef.nounKey,
               property: propDef.propertyKey,
               axis,
-              cells: [
-                [x, y],
-                [x + dx, y + dy],
-                [x + dx * 2, y + dy * 2],
-              ],
+              cells: [[x, y], [x + dx, y + dy], [tx, ty]],
             });
           }
+
+          for (const targetEntity of nounTerms) {
+            const targetDef = this.getDef(targetEntity.defId);
+            if (!targetDef.nounKey) {
+              continue;
+            }
+            emittedAnyTerm = true;
+            const sig = `n:${nounDef.nounKey}:${targetDef.nounKey}`;
+            if (seen.has(sig)) {
+              continue;
+            }
+            seen.add(sig);
+            rules.push({
+              kind: 'transform',
+              noun: nounDef.nounKey,
+              targetNoun: targetDef.nounKey,
+              axis,
+              cells: [[x, y], [x + dx, y + dy], [tx, ty]],
+            });
+          }
+
+          if (!emittedAnyTerm) {
+            break;
+          }
+
+          const andX = x + dx * (offset + 1);
+          const andY = y + dy * (offset + 1);
+          if (!this.isInBounds(andX, andY) || !andAt(andX, andY)) {
+            break;
+          }
+          offset += 2;
         }
       }
     };
@@ -427,6 +503,28 @@ export class Simulation {
     }
 
     return rules;
+  }
+
+  private applyTransformsFromRules(): void {
+    if (this.activeTransforms.size === 0) {
+      return;
+    }
+
+    for (const entity of this.entities.values()) {
+      const def = this.getDef(entity.defId);
+      if (def.kind !== 'object' || !def.nounKey) {
+        continue;
+      }
+      const targetNoun = this.activeTransforms.get(def.nounKey);
+      if (!targetNoun || targetNoun === def.nounKey) {
+        continue;
+      }
+      const targetDefId = OBJECT_DEF_BY_NOUN[targetNoun];
+      if (!targetDefId) {
+        continue;
+      }
+      entity.defId = targetDefId;
+    }
   }
 
   private hasProp(entity: EntityState, property: PropertyKey): boolean {
@@ -561,7 +659,9 @@ export class Simulation {
 
   private ruleSignature(rules: ParsedRule[]): string {
     return rules
-      .map((rule) => `${rule.noun}:${rule.property}`)
+      .map((rule) => (rule.kind === 'property'
+        ? `p:${rule.noun}:${rule.property}`
+        : `n:${rule.noun}:${rule.targetNoun}`))
       .sort()
       .join('|');
   }

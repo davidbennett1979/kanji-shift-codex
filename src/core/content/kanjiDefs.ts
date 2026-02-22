@@ -67,6 +67,9 @@ export const ENTITY_DEFS: Record<string, EntityDef> = {
   'txt-topic': {
     id: 'txt-topic', glyph: 'は', kind: 'text', category: 'text-connector', textRole: 'connector', connectorKey: 'TOPIC', tint: connectorTint, label: 'Topic', defaultPushable: true,
   } as EntityDef,
+  'txt-and': {
+    id: 'txt-and', glyph: 'と', kind: 'text', category: 'text-operator', textRole: 'operator', operatorKey: 'AND', tint: connectorTint, label: 'And', defaultPushable: true,
+  } as EntityDef,
 
   'txt-you': {
     id: 'txt-you', glyph: '遊', kind: 'text', category: 'text-property', textRole: 'property', propertyKey: 'YOU', tint: propTint, label: 'You', defaultPushable: true,
@@ -88,6 +91,12 @@ export const ENTITY_DEFS: Record<string, EntityDef> = {
   } as EntityDef,
   'txt-hot': {
     id: 'txt-hot', glyph: '熱', kind: 'text', category: 'text-property', textRole: 'property', propertyKey: 'HOT', tint: propTint, label: 'Hot', defaultPushable: true,
+  } as EntityDef,
+  'txt-hotspring': {
+    id: 'txt-hotspring', glyph: '湯', kind: 'text', category: 'text-noun', textRole: 'noun', nounKey: 'hotspring', tint: nounTint, label: 'Hot Spring text', defaultPushable: true,
+  } as EntityDef,
+  'txt-charcoal': {
+    id: 'txt-charcoal', glyph: '炭', kind: 'text', category: 'text-noun', textRole: 'noun', nounKey: 'charcoal', tint: nounTint, label: 'Charcoal text', defaultPushable: true,
   } as EntityDef,
 };
 

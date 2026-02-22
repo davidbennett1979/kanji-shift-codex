@@ -14,9 +14,9 @@ export type NounKey =
 
 export type PropertyKey = 'YOU' | 'PUSH' | 'STOP' | 'WIN' | 'FLOAT' | 'SINK' | 'HOT';
 
-export type EntityCategory = 'object' | 'text-noun' | 'text-property' | 'text-connector';
+export type EntityCategory = 'object' | 'text-noun' | 'text-property' | 'text-connector' | 'text-operator';
 
-export type TextRole = 'noun' | 'property' | 'connector';
+export type TextRole = 'noun' | 'property' | 'connector' | 'operator';
 
 export interface EntityDef {
   id: string;
@@ -27,6 +27,7 @@ export interface EntityDef {
   nounKey?: NounKey;
   propertyKey?: PropertyKey;
   connectorKey?: 'TOPIC';
+  operatorKey?: 'AND';
   defaultProps?: PropertyKey[];
   defaultPushable?: boolean;
   defaultStop?: boolean;
@@ -56,12 +57,23 @@ export interface LevelData {
   entities: LevelEntityPlacement[];
 }
 
-export interface ParsedRule {
+export interface ParsedPropertyRule {
+  kind: 'property';
   noun: NounKey;
   property: PropertyKey;
   axis: 'horizontal' | 'vertical';
   cells: [number, number][];
 }
+
+export interface ParsedTransformRule {
+  kind: 'transform';
+  noun: NounKey;
+  targetNoun: NounKey;
+  axis: 'horizontal' | 'vertical';
+  cells: [number, number][];
+}
+
+export type ParsedRule = ParsedPropertyRule | ParsedTransformRule;
 
 export interface FusionRecipe {
   id: string;
@@ -86,8 +98,10 @@ export interface SimulationEvent {
 }
 
 export interface ActiveRuleView {
+  kind: 'property' | 'transform';
   noun: NounKey;
-  property: PropertyKey;
+  property?: PropertyKey;
+  targetNoun?: NounKey;
 }
 
 export interface SimulationSnapshot {

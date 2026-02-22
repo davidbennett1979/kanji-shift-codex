@@ -93,5 +93,42 @@ export const TUTORIAL_LEVELS: LevelData[] = [
       { defId: 'obj-rock', x: 11, y: 7 },
       { defId: 'obj-rock', x: 11, y: 8 }
     ]
+  },
+  {
+    id: 'tutorial-06',
+    name: '6. Chain Rules (と)',
+    width: 16,
+    height: 10,
+    hint: 'Gate is both WIN and STOP. Use the gap and touch it.',
+    entities: [
+      { defId: 'txt-human', x: 1, y: 1 }, { defId: 'txt-topic', x: 2, y: 1 }, { defId: 'txt-you', x: 3, y: 1 },
+      { defId: 'txt-gate', x: 6, y: 1 }, { defId: 'txt-topic', x: 7, y: 1 }, { defId: 'txt-win', x: 8, y: 1 },
+      { defId: 'txt-and', x: 9, y: 1 }, { defId: 'txt-stop', x: 10, y: 1 },
+      { defId: 'txt-tree', x: 1, y: 2 }, { defId: 'txt-topic', x: 2, y: 2 }, { defId: 'txt-push', x: 3, y: 2 },
+      { defId: 'obj-human', x: 2, y: 7 },
+      { defId: 'obj-tree', x: 7, y: 7 },
+      { defId: 'obj-gate', x: 12, y: 7 },
+      { defId: 'obj-rock', x: 11, y: 6 },
+      { defId: 'obj-rock', x: 11, y: 8 }
+    ]
+  },
+  {
+    id: 'tutorial-07',
+    name: '7. Transform (NOUN は NOUN)',
+    width: 16,
+    height: 10,
+    hint: 'Build 火 は 山 to turn fire into a mountain. Then 火山 still works in later levels.',
+    entities: [
+      { defId: 'txt-human', x: 1, y: 1 }, { defId: 'txt-topic', x: 2, y: 1 }, { defId: 'txt-you', x: 3, y: 1 },
+      { defId: 'txt-mountain', x: 6, y: 1 }, { defId: 'txt-topic', x: 7, y: 1 }, { defId: 'txt-win', x: 8, y: 1 },
+      { defId: 'txt-fire', x: 1, y: 3 },
+      { defId: 'txt-topic', x: 4, y: 3 },
+      { defId: 'txt-mountain', x: 6, y: 3 },
+      { defId: 'obj-human', x: 2, y: 7 },
+      { defId: 'obj-fire', x: 5, y: 7 },
+      { defId: 'obj-rock', x: 10, y: 6 },
+      { defId: 'obj-rock', x: 10, y: 7 },
+      { defId: 'obj-rock', x: 10, y: 8 }
+    ]
   }
 ];
