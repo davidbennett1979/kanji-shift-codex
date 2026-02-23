@@ -483,9 +483,23 @@ export class LevelScene extends Phaser.Scene {
         24,
       ).color;
     }
+    if (nounProps?.has('MELT')) {
+      fill = Phaser.Display.Color.Interpolate.ColorWithColor(
+        Phaser.Display.Color.ValueToColor(fill),
+        Phaser.Display.Color.ValueToColor(0xe7c8d4),
+        100,
+        28,
+      ).color;
+      stroke = 0xb96f8b;
+      strokeWidth = Math.max(strokeWidth, 3);
+    }
     if (nounProps?.has('SINK')) {
       glyphColor = '#214651';
       stroke = 0x4f91a5;
+      strokeWidth = Math.max(strokeWidth, 3);
+    }
+    if (nounProps?.has('PULL')) {
+      stroke = 0x6e8fb8;
       strokeWidth = Math.max(strokeWidth, 3);
     }
     if (this.highContrast) {
@@ -548,7 +562,9 @@ export class LevelScene extends Phaser.Scene {
     if (nounProps.has('YOU')) return 'YOU';
     if (nounProps.has('WIN')) return 'WIN';
     if (nounProps.has('HOT')) return 'HOT';
+    if (nounProps.has('MELT')) return 'MELT';
     if (nounProps.has('SINK')) return 'SINK';
+    if (nounProps.has('PULL')) return 'PULL';
     if (nounProps.has('STOP')) return 'STOP';
     return '';
   }

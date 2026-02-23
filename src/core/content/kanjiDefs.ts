@@ -77,6 +77,9 @@ export const ENTITY_DEFS: Record<string, EntityDef> = {
   'txt-push': {
     id: 'txt-push', glyph: '押', kind: 'text', category: 'text-property', textRole: 'property', propertyKey: 'PUSH', tint: propTint, label: 'Push', defaultPushable: true,
   } as EntityDef,
+  'txt-pull': {
+    id: 'txt-pull', glyph: '引', kind: 'text', category: 'text-property', textRole: 'property', propertyKey: 'PULL', tint: propTint, label: 'Pull', defaultPushable: true,
+  } as EntityDef,
   'txt-stop': {
     id: 'txt-stop', glyph: '止', kind: 'text', category: 'text-property', textRole: 'property', propertyKey: 'STOP', tint: propTint, label: 'Stop', defaultPushable: true,
   } as EntityDef,
@@ -91,6 +94,9 @@ export const ENTITY_DEFS: Record<string, EntityDef> = {
   } as EntityDef,
   'txt-hot': {
     id: 'txt-hot', glyph: '熱', kind: 'text', category: 'text-property', textRole: 'property', propertyKey: 'HOT', tint: propTint, label: 'Hot', defaultPushable: true,
+  } as EntityDef,
+  'txt-melt': {
+    id: 'txt-melt', glyph: '溶', kind: 'text', category: 'text-property', textRole: 'property', propertyKey: 'MELT', tint: propTint, label: 'Melt', defaultPushable: true,
   } as EntityDef,
   'txt-hotspring': {
     id: 'txt-hotspring', glyph: '湯', kind: 'text', category: 'text-noun', textRole: 'noun', nounKey: 'hotspring', tint: nounTint, label: 'Hot Spring text', defaultPushable: true,

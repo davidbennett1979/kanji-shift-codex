@@ -130,5 +130,54 @@ export const TUTORIAL_LEVELS: LevelData[] = [
       { defId: 'obj-rock', x: 10, y: 7 },
       { defId: 'obj-rock', x: 10, y: 8 }
     ]
+  },
+  {
+    id: 'tutorial-08',
+    name: '8. Pull (引)',
+    width: 16,
+    height: 10,
+    hint: 'Tree is PULL + STOP. Move away from it to drag it and open the gate path.',
+    entities: [
+      { defId: 'txt-human', x: 1, y: 1 }, { defId: 'txt-topic', x: 2, y: 1 }, { defId: 'txt-you', x: 3, y: 1 },
+      { defId: 'txt-gate', x: 6, y: 1 }, { defId: 'txt-topic', x: 7, y: 1 }, { defId: 'txt-win', x: 8, y: 1 },
+      { defId: 'txt-tree', x: 10, y: 1 }, { defId: 'txt-topic', x: 11, y: 1 }, { defId: 'txt-pull', x: 12, y: 1 },
+      { defId: 'txt-and', x: 13, y: 1 }, { defId: 'txt-stop', x: 14, y: 1 },
+
+      { defId: 'obj-human', x: 9, y: 7 },
+      { defId: 'obj-tree', x: 10, y: 7 },
+      { defId: 'obj-gate', x: 12, y: 7 },
+
+      { defId: 'obj-rock', x: 11, y: 6 },
+      { defId: 'obj-rock', x: 12, y: 6 },
+      { defId: 'obj-rock', x: 13, y: 6 },
+      { defId: 'obj-rock', x: 13, y: 7 },
+      { defId: 'obj-rock', x: 11, y: 8 },
+      { defId: 'obj-rock', x: 12, y: 8 },
+      { defId: 'obj-rock', x: 13, y: 8 }
+    ]
+  },
+  {
+    id: 'tutorial-09',
+    name: '9. Melt (溶)',
+    width: 18,
+    height: 11,
+    hint: 'Push the melting tree into hot fire to clear the path.',
+    entities: [
+      { defId: 'txt-human', x: 1, y: 1 }, { defId: 'txt-topic', x: 2, y: 1 }, { defId: 'txt-you', x: 3, y: 1 },
+      { defId: 'txt-gate', x: 6, y: 1 }, { defId: 'txt-topic', x: 7, y: 1 }, { defId: 'txt-win', x: 8, y: 1 },
+
+      { defId: 'txt-fire', x: 1, y: 2 }, { defId: 'txt-topic', x: 2, y: 2 }, { defId: 'txt-hot', x: 3, y: 2 },
+      { defId: 'txt-tree', x: 6, y: 2 }, { defId: 'txt-topic', x: 7, y: 2 }, { defId: 'txt-push', x: 8, y: 2 },
+      { defId: 'txt-and', x: 9, y: 2 }, { defId: 'txt-melt', x: 10, y: 2 },
+
+      { defId: 'obj-human', x: 2, y: 8 },
+      { defId: 'obj-fire', x: 9, y: 8 },
+      { defId: 'obj-tree', x: 6, y: 8 },
+      { defId: 'obj-gate', x: 14, y: 8 },
+
+      { defId: 'obj-rock', x: 11, y: 7 },
+      { defId: 'obj-rock', x: 11, y: 8 },
+      { defId: 'obj-rock', x: 11, y: 9 }
+    ]
   }
 ];

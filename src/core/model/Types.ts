@@ -12,7 +12,7 @@ export type NounKey =
   | 'hotspring'
   | 'charcoal';
 
-export type PropertyKey = 'YOU' | 'PUSH' | 'STOP' | 'WIN' | 'FLOAT' | 'SINK' | 'HOT';
+export type PropertyKey = 'YOU' | 'PUSH' | 'PULL' | 'STOP' | 'WIN' | 'FLOAT' | 'SINK' | 'HOT' | 'MELT';
 
 export type EntityCategory = 'object' | 'text-noun' | 'text-property' | 'text-connector' | 'text-operator';
 
