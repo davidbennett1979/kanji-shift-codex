@@ -9,7 +9,7 @@ const fusedTint = 0xe8d9a0;
 
 export const ENTITY_DEFS: Record<string, EntityDef> = {
   'obj-human': {
-    id: 'obj-human', glyph: '人', kind: 'object', category: 'object', nounKey: 'human', tint: objectTint, label: 'Human',
+    id: 'obj-human', glyph: '人', kind: 'object', category: 'object', nounKey: 'human', tint: objectTint, label: 'Human', defaultPushable: true,
   },
   'obj-tree': {
     id: 'obj-tree', glyph: '木', kind: 'object', category: 'object', nounKey: 'tree', tint: 0xcab88f, label: 'Tree',

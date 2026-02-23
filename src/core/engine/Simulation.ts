@@ -18,6 +18,8 @@ type HistorySnapshot = {
   entities: EntityState[];
   moveCount: number;
   won: boolean;
+  focusYouId?: string;
+  focusWinId?: string;
 };
 
 const DIR_VECTORS: Record<Direction, { dx: number; dy: number }> = {
@@ -67,6 +69,8 @@ export class Simulation {
   private activeRules: ParsedRule[] = [];
   private activeProps = new Map<NounKey, Set<PropertyKey>>();
   private activeTransforms = new Map<NounKey, NounKey>();
+  private focusYouId?: string;
+  private focusWinId?: string;
   private lastEvents: SimulationEvent[] = [];
 
   constructor(level: LevelData) {
@@ -81,12 +85,15 @@ export class Simulation {
     this.moveCount = 0;
     this.won = false;
     this.history = [];
+    this.focusYouId = undefined;
+    this.focusWinId = undefined;
 
     for (const placement of level.entities) {
       this.spawnEntity(placement.defId, placement.x, placement.y);
     }
 
     this.rebuildRules();
+    this.refreshFocusRoles();
     this.lastEvents = [{ type: 'level-load', message: `Loaded ${level.name}` }];
   }
 
@@ -104,6 +111,7 @@ export class Simulation {
 
     this.restoreHistorySnapshot(prev);
     this.rebuildRules();
+    this.refreshFocusRoles();
     this.lastEvents = [{ type: 'undo', message: 'Undo' }];
   }
 
@@ -114,8 +122,11 @@ export class Simulation {
     }
 
     const before = this.captureHistorySnapshot();
+    const beforeRules = this.activeRules.map((rule) => ({ ...rule, cells: [...rule.cells] }));
     const beforeRuleSig = this.ruleSignature(this.activeRules);
     const events: SimulationEvent[] = [];
+    this.refreshFocusRoles();
+    const roleOrigins = this.captureFocusOrigins();
     const moved = this.applyMovement(direction, events);
 
     if (!moved) {
@@ -128,6 +139,9 @@ export class Simulation {
 
     this.applyFusion(events);
     this.rebuildRules(events);
+    this.applyRoleAssignmentsFromNewRules(beforeRules, roleOrigins.beforePositions, events);
+    this.applyRoleAssignmentsFromNounSlotTriggers(roleOrigins.beforePositions, events);
+    this.refreshFocusRoles();
 
     const afterRuleSig = this.ruleSignature(this.activeRules);
     if (afterRuleSig !== beforeRuleSig) {
@@ -154,6 +168,10 @@ export class Simulation {
           ? { kind: 'property', noun: rule.noun, property: rule.property, cells: [...rule.cells], axis: rule.axis }
           : { kind: 'transform', noun: rule.noun, targetNoun: rule.targetNoun, cells: [...rule.cells], axis: rule.axis }
       )),
+      focusRoles: {
+        playerEntityId: this.focusYouId,
+        winEntityId: this.focusWinId,
+      },
       lastEvents: [...this.lastEvents],
     };
   }
@@ -177,36 +195,29 @@ export class Simulation {
   }
 
   private applyMovement(direction: Direction, events: SimulationEvent[]): boolean {
-    const controllers = [...this.entities.values()]
-      .filter((entity) => this.hasProp(entity, 'YOU'))
-      .sort((a, b) => a.id.localeCompare(b.id));
-
-    if (controllers.length === 0) {
+    this.refreshFocusRoles();
+    if (!this.focusYouId) {
       events.push({ type: 'blocked', message: 'No controllable object (need 人 は 遊)' });
+      return false;
+    }
+    const focused = this.entities.get(this.focusYouId);
+    if (!focused) {
+      events.push({ type: 'blocked', message: 'No controllable object' });
+      this.refreshFocusRoles();
       return false;
     }
 
     const { dx, dy } = DIR_VECTORS[direction];
     let anyMoved = false;
-
-    for (const controller of controllers) {
-      const current = this.entities.get(controller.id);
-      if (!current) {
-        continue;
-      }
-
-      const checkpoint = this.cloneEntityPositions();
-      const movedIds = new Set<string>();
-      const ok = this.moveEntityRecursive(current.id, dx, dy, new Set<string>(), movedIds);
-      if (!ok) {
-        this.restoreEntityPositions(checkpoint);
-        continue;
-      }
-
-      if (movedIds.has(current.id)) {
-        anyMoved = true;
-      }
+    const checkpoint = this.cloneEntityPositions();
+    const movedIds = new Set<string>();
+    const ok = this.moveEntityRecursive(focused.id, dx, dy, new Set<string>(), movedIds);
+    if (!ok) {
+      this.restoreEntityPositions(checkpoint);
+      events.push({ type: 'blocked', message: 'Blocked' });
+      return false;
     }
+    anyMoved = movedIds.has(focused.id);
 
     if (anyMoved) {
       events.push({ type: 'move', message: `Moved ${direction}` });
@@ -243,6 +254,12 @@ export class Simulation {
       .sort((a, b) => a.id.localeCompare(b.id));
 
     for (const occ of occupants) {
+      // Touching a WIN target should be allowed to overlap so the win can trigger,
+      // even if that target would otherwise be pushable/blocking.
+      if (entityId === this.focusYouId && this.hasProp(occ, 'WIN')) {
+        continue;
+      }
+
       if (this.isPushable(occ)) {
         const pushed = this.moveEntityRecursive(occ.id, dx, dy, visiting, movedIds);
         if (!pushed) {
@@ -357,12 +374,24 @@ export class Simulation {
     }
 
     const postCells = this.buildCellMap();
+    this.refreshFocusRoles();
+    if (this.focusYouId && this.focusWinId) {
+      const you = this.entities.get(this.focusYouId);
+      const win = this.entities.get(this.focusWinId);
+      if (you && win && you.id !== win.id && you.x === win.x && you.y === win.y) {
+        this.won = true;
+        events.push({ type: 'win', message: 'You Win!', x: you.x, y: you.y, cells: [[you.x, you.y]] });
+      }
+      return;
+    }
+
     for (const occupants of postCells.values()) {
       const hasYou = occupants.some((e) => this.hasProp(e, 'YOU'));
       const hasWin = occupants.some((e) => this.hasProp(e, 'WIN'));
       if (hasYou && hasWin) {
         this.won = true;
-        events.push({ type: 'win', message: 'You Win!' });
+        const winner = occupants.find((e) => this.hasProp(e, 'YOU')) ?? occupants[0];
+        events.push({ type: 'win', message: 'You Win!', x: winner?.x, y: winner?.y, cells: winner ? [[winner.x, winner.y]] : undefined });
         break;
       }
     }
@@ -396,10 +425,16 @@ export class Simulation {
     const byCell = this.buildCellMap();
     const seen = new Set<string>();
 
-    const nounTextsAt = (x: number, y: number) => (byCell.get(this.cellKey(x, y)) ?? []).filter((e) => {
-        const def = this.getDef(e.defId);
-        return def.kind === 'text' && def.textRole === 'noun' && !!def.nounKey;
-      });
+    const nounTermsAt = (x: number, y: number) => (byCell.get(this.cellKey(x, y)) ?? []).filter((e) => {
+      const def = this.getDef(e.defId);
+      if (!def.nounKey) {
+        return false;
+      }
+      if (def.kind === 'object') {
+        return true;
+      }
+      return def.kind === 'text' && def.textRole === 'noun';
+    });
     const topicAt = (x: number, y: number) => (byCell.get(this.cellKey(x, y)) ?? []).some((e) => {
         const def = this.getDef(e.defId);
         return def.kind === 'text' && def.textRole === 'connector' && def.connectorKey === 'TOPIC';
@@ -414,7 +449,7 @@ export class Simulation {
     });
 
     const tryAxis = (x: number, y: number, dx: number, dy: number, axis: 'horizontal' | 'vertical') => {
-      const nouns = nounTextsAt(x, y);
+      const nouns = nounTermsAt(x, y);
       if (nouns.length === 0 || !topicAt(x + dx, y + dy)) {
         return;
       }
@@ -434,7 +469,7 @@ export class Simulation {
           }
 
           const propTerms = propertyTextsAt(tx, ty);
-          const nounTerms = nounTextsAt(tx, ty);
+          const nounTerms = nounTermsAt(tx, ty);
           let emittedAnyTerm = false;
 
           for (const propEntity of propTerms) {
@@ -578,9 +613,22 @@ export class Simulation {
     return this.activeProps.get(def.nounKey)?.has(property) ?? false;
   }
 
+  private hasRuleProp(entity: EntityState, property: PropertyKey): boolean {
+    const def = this.getDef(entity.defId);
+    if (!def.nounKey) {
+      return false;
+    }
+    return this.activeProps.get(def.nounKey)?.has(property) ?? false;
+  }
+
   private isPushable(entity: EntityState): boolean {
     const def = this.getDef(entity.defId);
     if (def.defaultPushable) {
+      return true;
+    }
+    // In this design, controllable objects should remain interactable/movable.
+    // Treat active YOU-carriers as implicitly pushable.
+    if (this.hasProp(entity, 'YOU')) {
       return true;
     }
     return this.hasProp(entity, 'PUSH');
@@ -652,6 +700,8 @@ export class Simulation {
       entities: [...this.entities.values()].map((e) => ({ ...e })),
       moveCount: this.moveCount,
       won: this.won,
+      focusYouId: this.focusYouId,
+      focusWinId: this.focusWinId,
     };
   }
 
@@ -668,6 +718,8 @@ export class Simulation {
     this.nextId = max + 1;
     this.moveCount = snapshot.moveCount;
     this.won = snapshot.won;
+    this.focusYouId = snapshot.focusYouId;
+    this.focusWinId = snapshot.focusWinId;
   }
 
   private cloneEntityPositions(): Map<string, { x: number; y: number }> {
@@ -695,5 +747,374 @@ export class Simulation {
         : `n:${rule.noun}:${rule.targetNoun}`))
       .sort()
       .join('|');
+  }
+
+  private refreshFocusRoles(): void {
+    const hasYouRule = this.hasAnyActivePropertyRule('YOU');
+    const hasWinRule = this.hasAnyActivePropertyRule('WIN');
+
+    if (!hasYouRule) {
+      this.focusYouId = undefined;
+    }
+    if (!hasWinRule) {
+      this.focusWinId = undefined;
+    }
+
+    if (this.focusYouId && !this.entities.has(this.focusYouId)) {
+      this.focusYouId = undefined;
+    }
+    if (this.focusWinId && !this.entities.has(this.focusWinId)) {
+      this.focusWinId = undefined;
+    }
+
+    if (hasYouRule && !this.focusYouId) {
+      this.focusYouId = this.pickFirstRuleCarrier('YOU');
+    }
+    if (hasWinRule && !this.focusWinId) {
+      this.focusWinId = this.pickFirstRuleCarrier('WIN');
+    }
+  }
+
+  private hasAnyActivePropertyRule(property: 'YOU' | 'WIN'): boolean {
+    return this.activeRules.some((rule) => rule.kind === 'property' && rule.property === property);
+  }
+
+  private pickFirstRuleCarrier(property: 'YOU' | 'WIN'): string | undefined {
+    const relevantRuleCells = new Set<string>();
+    const anyRuleCells = new Set<string>();
+    for (const rule of this.activeRules) {
+      for (const [x, y] of rule.cells) {
+        anyRuleCells.add(`${x},${y}`);
+      }
+      if (rule.kind === 'property' && rule.property === property) {
+        for (const [x, y] of rule.cells) {
+          relevantRuleCells.add(`${x},${y}`);
+        }
+      }
+    }
+
+    const candidates = [...this.entities.values()]
+      .filter((entity) => this.isRoleCarrierCandidate(entity) && this.hasRuleProp(entity, property));
+
+    const score = (entity: EntityState): number => {
+      const def = this.getDef(entity.defId);
+      let s = 0;
+      if (def.kind !== 'object') s += 100; // prefer world objects over text by default
+      if (relevantRuleCells.has(`${entity.x},${entity.y}`)) s += 20; // prefer off the active rule line
+      if (anyRuleCells.has(`${entity.x},${entity.y}`)) s += 5; // then prefer not sitting on any rule text
+      return s;
+    };
+
+    candidates.sort((a, b) => {
+      const delta = score(a) - score(b);
+      if (delta !== 0) return delta;
+      return a.id.localeCompare(b.id);
+    });
+
+    return candidates[0]?.id;
+  }
+
+  private captureFocusOrigins(): {
+    player?: { id: string; x: number; y: number };
+    win?: { id: string; x: number; y: number };
+    beforePositions: Map<string, { x: number; y: number }>;
+  } {
+    const beforePositions = this.cloneEntityPositions();
+    const player = this.focusYouId ? this.entities.get(this.focusYouId) : undefined;
+    const win = this.focusWinId ? this.entities.get(this.focusWinId) : undefined;
+    return {
+      player: player ? { id: player.id, x: player.x, y: player.y } : undefined,
+      win: win ? { id: win.id, x: win.x, y: win.y } : undefined,
+      beforePositions,
+    };
+  }
+
+  private applyRoleHandoffs(
+    origins: {
+      player?: { id: string; x: number; y: number };
+      win?: { id: string; x: number; y: number };
+      beforePositions: Map<string, { x: number; y: number }>;
+    },
+    events: SimulationEvent[],
+  ): void {
+    const canShiftYou = this.hasAnyActivePropertyRule('YOU');
+    const canShiftWin = this.hasAnyActivePropertyRule('WIN');
+
+    const transfer = (
+      role: 'YOU' | 'WIN',
+      focusKey: 'focusYouId' | 'focusWinId',
+      origin?: { id: string; x: number; y: number },
+    ) => {
+      if ((role === 'YOU' && !canShiftYou) || (role === 'WIN' && !canShiftWin)) {
+        return;
+      }
+      if (!origin) {
+        return;
+      }
+      const carrier = this.entities.get(origin.id);
+      if (!carrier) {
+        return;
+      }
+
+      const candidates = this.getOccupants(origin.x, origin.y)
+        .filter((entity) => entity.id !== origin.id && this.isRoleCarrierCandidate(entity))
+        .sort((a, b) => a.id.localeCompare(b.id));
+      if (candidates.length === 0) {
+        return;
+      }
+
+      const movedInto = candidates.find((entity) => {
+        const before = origins.beforePositions.get(entity.id);
+        return !before || before.x !== origin.x || before.y !== origin.y;
+      });
+      if (!movedInto) {
+        return;
+      }
+      const recipient = movedInto;
+      if (!recipient) {
+        return;
+      }
+
+      this[focusKey] = recipient.id;
+      events.push({
+        type: 'role-shift',
+        message: `${role === 'YOU' ? 'Player' : 'Goal'} shifts to ${this.getDef(recipient.defId).glyph}`,
+        x: recipient.x,
+        y: recipient.y,
+        cells: [[recipient.x, recipient.y]],
+      });
+    };
+
+    transfer('YOU', 'focusYouId', origins.player);
+    transfer('WIN', 'focusWinId', origins.win);
+  }
+
+  private applyRoleAssignmentsFromNewRules(
+    beforeRules: ParsedRule[],
+    beforePositions: Map<string, { x: number; y: number }>,
+    events: SimulationEvent[],
+  ): void {
+    const beforeSet = new Set(
+      beforeRules
+        .filter((rule) => rule.kind === 'property')
+        .map((rule) => `p:${rule.noun}:${rule.property}:${rule.cells.map(([x, y]) => `${x},${y}`).join(';')}`),
+    );
+
+    const newPropRules = this.activeRules.filter((rule): rule is Extract<ParsedRule, { kind: 'property' }> => {
+      if (rule.kind !== 'property') {
+        return false;
+      }
+      const key = `p:${rule.noun}:${rule.property}:${rule.cells.map(([x, y]) => `${x},${y}`).join(';')}`;
+      return !beforeSet.has(key);
+    });
+
+    for (const rule of newPropRules) {
+      if (rule.property === 'YOU') {
+        const picked = this.pickFocusCarrierForRule(rule, beforePositions);
+        if (picked && this.focusYouId !== picked.id) {
+          this.focusYouId = picked.id;
+          events.push({
+            type: 'role-shift',
+            message: `Player captured by ${this.getDef(picked.defId).glyph} (遊)`,
+            x: picked.x,
+            y: picked.y,
+            cells: [[picked.x, picked.y], ...rule.cells],
+          });
+        }
+      }
+
+      if (rule.property === 'WIN') {
+        const picked = this.pickFocusCarrierForRule(rule, beforePositions, this.focusYouId);
+        if (picked && this.focusWinId !== picked.id) {
+          this.focusWinId = picked.id;
+          events.push({
+            type: 'role-shift',
+            message: `Goal captured by ${this.getDef(picked.defId).glyph} (勝)`,
+            x: picked.x,
+            y: picked.y,
+            cells: [[picked.x, picked.y], ...rule.cells],
+          });
+        }
+      }
+    }
+  }
+
+  private pickFocusCarrierForRule(
+    rule: Extract<ParsedRule, { kind: 'property' }>,
+    beforePositions: Map<string, { x: number; y: number }>,
+    excludeId?: string,
+  ): EntityState | undefined {
+    const targetObjects = [...this.entities.values()]
+      .filter((entity) => {
+        const def = this.getDef(entity.defId);
+        return this.isRoleCarrierCandidate(entity) && def.nounKey === rule.noun && entity.id !== excludeId;
+      })
+      .sort((a, b) => a.id.localeCompare(b.id));
+
+    if (targetObjects.length === 0) {
+      return undefined;
+    }
+
+    const nounCell = rule.cells[0];
+    const propCell = rule.cells[rule.cells.length - 1];
+    const connectorCell = rule.cells[1];
+    const ruleCellKeys = new Set(rule.cells.map(([x, y]) => `${x},${y}`));
+
+    const matchesCell = (entity: EntityState, cell?: [number, number]) => {
+      if (!cell) {
+        return false;
+      }
+      return entity.x === cell[0] && entity.y === cell[1];
+    };
+
+    const movedThisTurn = (entity: EntityState) => {
+      const prev = beforePositions.get(entity.id);
+      return !prev || prev.x !== entity.x || prev.y !== entity.y;
+    };
+
+    return (
+      targetObjects.find((entity) => matchesCell(entity, propCell) && movedThisTurn(entity)) ??
+      targetObjects.find((entity) => matchesCell(entity, propCell)) ??
+      targetObjects.find((entity) => matchesCell(entity, nounCell) && movedThisTurn(entity)) ??
+      targetObjects.find((entity) => matchesCell(entity, nounCell)) ??
+      targetObjects.find((entity) => matchesCell(entity, connectorCell) && movedThisTurn(entity)) ??
+      targetObjects.find((entity) => ruleCellKeys.has(`${entity.x},${entity.y}`) && movedThisTurn(entity)) ??
+      targetObjects.find((entity) => movedThisTurn(entity)) ??
+      targetObjects[0]
+    );
+  }
+
+  private applyRoleAssignmentsFromActiveRules(
+    beforePositions: Map<string, { x: number; y: number }>,
+    events: SimulationEvent[],
+  ): void {
+    void beforePositions;
+    void events;
+  }
+
+  private applyRoleAssignmentsFromNounSlotTriggers(
+    beforePositions: Map<string, { x: number; y: number }>,
+    events: SimulationEvent[],
+  ): void {
+    const movedThisTurn = (entity: EntityState): boolean => {
+      const prev = beforePositions.get(entity.id);
+      return !prev || prev.x !== entity.x || prev.y !== entity.y;
+    };
+
+    const chooseFromNounSlot = (
+      property: 'YOU' | 'WIN',
+      currentFocusId: string | undefined,
+      setFocus: (id: string) => void,
+      options?: { excludeCurrentPlayer?: boolean },
+    ) => {
+      const activeRulesForRole = this.activeRules.filter(
+        (rule): rule is Extract<ParsedRule, { kind: 'property' }> =>
+          rule.kind === 'property' && rule.property === property,
+      );
+      if (activeRulesForRole.length === 0) {
+        return;
+      }
+
+      const anchor = (this.focusYouId && this.entities.get(this.focusYouId)) ?? (currentFocusId ? this.entities.get(currentFocusId) : undefined);
+
+      type Choice = {
+        rule: Extract<ParsedRule, { kind: 'property' }>;
+        movedIn: EntityState;
+        replacement: EntityState;
+        fallback: boolean;
+        distance: number;
+      };
+
+      const choices: Choice[] = [];
+
+      for (const rule of activeRulesForRole) {
+        const nounCell = rule.cells[0];
+        if (!nounCell) {
+          continue;
+        }
+
+        const movedIntoNounSlot = this.getOccupants(nounCell[0], nounCell[1])
+          .filter((entity) => this.isRoleCarrierCandidate(entity))
+          .filter((entity) => this.getDef(entity.defId).nounKey === rule.noun)
+          .filter((entity) => movedThisTurn(entity));
+
+        for (const movedIn of movedIntoNounSlot) {
+          const others = [...this.entities.values()]
+            .filter((entity) => this.isRoleCarrierCandidate(entity))
+            .filter((entity) => this.getDef(entity.defId).nounKey === rule.noun)
+            .filter((entity) => entity.id !== movedIn.id)
+            .filter((entity) => !(options?.excludeCurrentPlayer && entity.id === this.focusYouId));
+
+          others.sort((a, b) => {
+            const ad = anchor ? Math.abs(a.x - anchor.x) + Math.abs(a.y - anchor.y) : 0;
+            const bd = anchor ? Math.abs(b.x - anchor.x) + Math.abs(b.y - anchor.y) : 0;
+            if (ad !== bd) return ad - bd;
+            return a.id.localeCompare(b.id);
+          });
+
+          let replacement = others[0];
+          let fallback = false;
+          if (!replacement) {
+            if (options?.excludeCurrentPlayer && movedIn.id === this.focusYouId) {
+              continue;
+            }
+            replacement = movedIn;
+            fallback = true;
+          }
+          if (!replacement) {
+            continue;
+          }
+
+          const distance = anchor ? Math.abs(replacement.x - anchor.x) + Math.abs(replacement.y - anchor.y) : 0;
+          choices.push({ rule, movedIn, replacement, fallback, distance });
+        }
+      }
+
+      if (choices.length === 0) {
+        return;
+      }
+
+      choices.sort((a, b) => {
+        if (a.fallback !== b.fallback) return a.fallback ? 1 : -1;
+        if (a.distance !== b.distance) return a.distance - b.distance;
+        return a.replacement.id.localeCompare(b.replacement.id);
+      });
+
+      const chosen = choices[0];
+      if (!chosen || chosen.replacement.id === currentFocusId) {
+        return;
+      }
+
+      setFocus(chosen.replacement.id);
+      events.push({
+        type: 'role-shift',
+        message: `${property === 'YOU' ? 'Player' : 'Goal'} shifts to ${this.getDef(chosen.replacement.defId).glyph} (noun slot trigger)`,
+        x: chosen.replacement.x,
+        y: chosen.replacement.y,
+        cells: [[chosen.replacement.x, chosen.replacement.y], ...chosen.rule.cells],
+      });
+    };
+
+    chooseFromNounSlot('YOU', this.focusYouId, (id) => { this.focusYouId = id; });
+    chooseFromNounSlot('WIN', this.focusWinId, (id) => { this.focusWinId = id; }, { excludeCurrentPlayer: true });
+  }
+
+  private isRoleCarrierCandidate(entity: EntityState): boolean {
+    const def = this.getDef(entity.defId);
+    if (!def.nounKey) {
+      return false;
+    }
+    if (def.kind === 'object') {
+      return true;
+    }
+    return def.kind === 'text' && def.textRole === 'noun';
+  }
+
+  private enforceYouCarrierFromNounSlot(
+    beforePositions: Map<string, { x: number; y: number }>,
+    events: SimulationEvent[],
+  ): void {
+    void beforePositions;
+    void events;
   }
 }

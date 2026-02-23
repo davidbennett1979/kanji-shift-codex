@@ -356,6 +356,8 @@ export class LevelScene extends Phaser.Scene {
     }
 
     const activeProps = this.buildActivePropertyMap(snapshot.activeRules);
+    const focusedPlayerId = snapshot.focusRoles.playerEntityId;
+    const focusedWinId = snapshot.focusRoles.winEntityId;
     const activeIds = new Set(entities.map((e) => e.id));
     for (const [id, view] of this.entityViews.entries()) {
       if (!activeIds.has(id)) {
@@ -398,10 +400,17 @@ export class LevelScene extends Phaser.Scene {
       }
 
       const nounProps = def.nounKey ? activeProps.get(def.nounKey) : undefined;
-      const style = this.getVisualStyle(def, nounProps);
+      const visualProps = new Set<PropertyKey>(nounProps ? [...nounProps] : []);
+      if (focusedPlayerId === entity.id) {
+        visualProps.add('YOU');
+      }
+      if (focusedWinId === entity.id) {
+        visualProps.add('WIN');
+      }
+      const style = this.getVisualStyle(def, visualProps);
       const pos = this.cellToWorld(entity.x, entity.y, Math.max(0, stackIndex));
       const fontSize = this.debugEnabled ? 18 : def.glyph.length > 1 ? 24 : 32;
-      const youPulse = nounProps?.has('YOU') && !this.reducedMotion ? 0.14 * (Math.sin(this.time.now / 140) + 1) : 0;
+      const youPulse = visualProps.has('YOU') && !this.reducedMotion ? 0.14 * (Math.sin(this.time.now / 140) + 1) : 0;
 
       view.body.setFillStyle(style.fill, style.fillAlpha);
       view.body.setStrokeStyle(style.strokeWidth, style.stroke, style.strokeAlpha);
@@ -428,7 +437,7 @@ export class LevelScene extends Phaser.Scene {
         view.glyph.setPosition(pos.x, pos.y);
       }
 
-      const badgeText = this.getBadgeText(nounProps);
+      const badgeText = this.getBadgeText(visualProps);
       view.badge
         .setText(badgeText)
         .setVisible(badgeText.length > 0)
@@ -581,6 +590,12 @@ export class LevelScene extends Phaser.Scene {
         if (event.cells) {
           this.highlightCells(event.cells, 0x88b7c7);
         }
+      } else if (event.type === 'role-shift') {
+        const pos = (typeof event.x === 'number' && typeof event.y === 'number')
+          ? this.cellCenter(event.x, event.y)
+          : center;
+        this.spawnRingFx(pos.x, pos.y, 0xc7a24a, 0.8);
+        this.highlightCells(event.cells ?? [[Math.floor((pos.x - BOARD_LEFT) / TILE), Math.floor((pos.y - BOARD_TOP) / TILE)]], 0xc7a24a);
       } else if (event.type === 'win') {
         this.spawnRingFx(center.x, center.y, 0x5fbf71, 1.6);
         this.spawnSpecks(center.x, center.y, 0x5fbf71, 20);

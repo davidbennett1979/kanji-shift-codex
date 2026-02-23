@@ -29,6 +29,10 @@ export class SfxManager {
           this.beep(350, 0.03, 'sine', 0.02);
           this.beep(480, 0.05, 'triangle', 0.018, 0.02);
           break;
+        case 'role-shift':
+          this.beep(390, 0.025, 'triangle', 0.018);
+          this.beep(520, 0.03, 'sine', 0.014, 0.015);
+          break;
         case 'rule-change':
           this.beep(500, 0.02, 'sine', 0.018);
           this.beep(560, 0.03, 'sine', 0.014, 0.02);

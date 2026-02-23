@@ -87,6 +87,7 @@ export type SimulationEventType =
   | 'blocked'
   | 'fusion'
   | 'transform'
+  | 'role-shift'
   | 'rule-change'
   | 'win'
   | 'undo'
@@ -120,5 +121,9 @@ export interface SimulationSnapshot {
   won: boolean;
   entities: EntityState[];
   activeRules: ActiveRuleView[];
+  focusRoles: {
+    playerEntityId?: string;
+    winEntityId?: string;
+  };
   lastEvents: SimulationEvent[];
 }
