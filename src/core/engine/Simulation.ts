@@ -256,7 +256,7 @@ export class Simulation {
     for (const occ of occupants) {
       // Touching a WIN target should be allowed to overlap so the win can trigger,
       // even if that target would otherwise be pushable/blocking.
-      if (entityId === this.focusYouId && this.hasProp(occ, 'WIN')) {
+      if (entityId === this.focusYouId && (occ.id === this.focusWinId || this.hasProp(occ, 'WIN'))) {
         continue;
       }
 
