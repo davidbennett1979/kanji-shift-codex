@@ -22,6 +22,8 @@ type EntityView = {
   shadow: Phaser.GameObjects.Rectangle;
   body: Phaser.GameObjects.Rectangle;
   glyph: Phaser.GameObjects.Text;
+  gloss: Phaser.GameObjects.Text;
+  badge: Phaser.GameObjects.Text;
 };
 
 type CellCoord = { x: number; y: number };
@@ -49,6 +51,13 @@ export class LevelScene extends Phaser.Scene {
   private hoverCell?: CellCoord;
   private exportStatus?: string;
   private lastSnapshot?: SimulationSnapshot;
+  private eventHistory: string[] = [];
+  private showGloss = false;
+  private highContrast = false;
+  private reducedMotion = false;
+  private audioMuted = false;
+  private moveCooldownUntil = 0;
+  private queuedMove?: Direction;
   private readonly sfx = new SfxManager();
 
   constructor() {
@@ -86,6 +95,12 @@ export class LevelScene extends Phaser.Scene {
       this.hoverGraphics.fillRoundedRect(x + 3, y + 3, TILE - 6, TILE - 6, 10);
       this.hoverGraphics.strokeRoundedRect(x + 3, y + 3, TILE - 6, TILE - 6, 10);
     }
+
+    if (this.queuedMove && this.time.now >= this.moveCooldownUntil) {
+      const dir = this.queuedMove;
+      this.queuedMove = undefined;
+      this.executeMove(dir);
+    }
   }
 
   private bindKeys(): void {
@@ -95,6 +110,31 @@ export class LevelScene extends Phaser.Scene {
       if (key === 'e') {
         this.editorEnabled = !this.editorEnabled;
         this.exportStatus = undefined;
+        this.pushHud(this.lastSnapshot ?? this.simulation.getSnapshot());
+        return;
+      }
+
+      if (key === 'g') {
+        this.showGloss = !this.showGloss;
+        this.renderSnapshot(this.simulation.getSnapshot(), false, false);
+        return;
+      }
+
+      if (key === 'h') {
+        this.highContrast = !this.highContrast;
+        this.renderSnapshot(this.simulation.getSnapshot(), false, false);
+        return;
+      }
+
+      if (key === 't') {
+        this.reducedMotion = !this.reducedMotion;
+        this.pushHud(this.lastSnapshot ?? this.simulation.getSnapshot());
+        return;
+      }
+
+      if (key === 'm') {
+        this.audioMuted = !this.audioMuted;
+        this.sfx.setMuted(this.audioMuted);
         this.pushHud(this.lastSnapshot ?? this.simulation.getSnapshot());
         return;
       }
@@ -159,19 +199,35 @@ export class LevelScene extends Phaser.Scene {
   }
 
   private applyMove(direction: Direction): void {
+    if (this.editorEnabled) {
+      return;
+    }
+    if (this.time.now < this.moveCooldownUntil) {
+      this.queuedMove = direction;
+      return;
+    }
+    this.executeMove(direction);
+  }
+
+  private executeMove(direction: Direction): void {
     this.simulation.move(direction);
-    this.renderSnapshot(this.simulation.getSnapshot(), true);
+    this.moveCooldownUntil = this.time.now + (this.reducedMotion ? 10 : 110);
+    this.renderSnapshot(this.simulation.getSnapshot(), !this.reducedMotion);
   }
 
   private loadNextLevel(): void {
     this.levelIndex = (this.levelIndex + 1) % TUTORIAL_LEVELS.length;
     this.currentLevel = this.cloneLevel(this.getLevelOrThrow(this.levelIndex));
+    this.queuedMove = undefined;
+    this.moveCooldownUntil = 0;
     this.simulation.loadLevel(this.currentLevel);
     this.clearEntityViews();
     this.renderSnapshot(this.simulation.getSnapshot(), false);
   }
 
   private reloadCurrentLevel(): void {
+    this.queuedMove = undefined;
+    this.moveCooldownUntil = 0;
     this.simulation.loadLevel(this.cloneLevel(this.currentLevel));
     this.clearEntityViews();
     this.renderSnapshot(this.simulation.getSnapshot(), false);
@@ -193,11 +249,13 @@ export class LevelScene extends Phaser.Scene {
   }
 
   private renderSnapshot(snapshot: SimulationSnapshot, animate: boolean, reactToEvents = true): void {
+    const prevSnapshot = this.lastSnapshot;
     this.lastSnapshot = snapshot;
     this.drawGrid(snapshot.width, snapshot.height);
     this.syncEntities(snapshot, animate);
     if (reactToEvents) {
-      this.emitEventFx(snapshot.lastEvents, snapshot);
+      this.appendEventHistory(snapshot);
+      this.emitEventFx(snapshot.lastEvents, snapshot, prevSnapshot);
       this.sfx.playEvents(snapshot.lastEvents);
     }
     this.pushHud(snapshot);
@@ -210,6 +268,13 @@ export class LevelScene extends Phaser.Scene {
       snapshot,
       formattedRules: snapshot.activeRules.map((rule) => this.simulation.formatRule(rule)),
       debugEnabled: this.debugEnabled,
+      eventLog: this.eventHistory,
+      settings: {
+        gloss: this.showGloss,
+        highContrast: this.highContrast,
+        reducedMotion: this.reducedMotion,
+        muted: this.audioMuted,
+      },
       editor: {
         enabled: this.editorEnabled,
         selectedLabel: selectedDef.label,
@@ -219,12 +284,32 @@ export class LevelScene extends Phaser.Scene {
     });
   }
 
+  private appendEventHistory(snapshot: SimulationSnapshot): void {
+    if (snapshot.lastEvents.length === 0) {
+      return;
+    }
+    const resetLog = snapshot.lastEvents.some((e) => e.type === 'level-load' || e.type === 'restart');
+    if (resetLog) {
+      this.eventHistory = [];
+    }
+    for (const event of snapshot.lastEvents) {
+      if (event.type === 'move' && snapshot.lastEvents.length > 1) {
+        continue;
+      }
+      this.eventHistory.push(`${String(snapshot.moveCount).padStart(2, '0')}  ${event.message}`);
+    }
+    if (this.eventHistory.length > 7) {
+      this.eventHistory = this.eventHistory.slice(-7);
+    }
+  }
+
   private drawBackdrop(): void {
     const { width, height } = this.scale;
+    const bg = this.highContrast ? 0x100f0e : 0x171310;
 
-    this.add.rectangle(0, 0, width, height, 0x171310, 1).setOrigin(0, 0);
-    this.paperBg = this.add.tileSprite(0, 0, width, height, RUNTIME_TEX.paper).setOrigin(0, 0).setAlpha(0.28);
-    this.add.rectangle(12, 86, width - (RIGHT_PANEL_W + 24), height - 98, 0x1f1a17, 0.38).setOrigin(0, 0);
+    this.add.rectangle(0, 0, width, height, bg, 1).setOrigin(0, 0);
+    this.paperBg = this.add.tileSprite(0, 0, width, height, RUNTIME_TEX.paper).setOrigin(0, 0).setAlpha(this.highContrast ? 0.12 : 0.28);
+    this.add.rectangle(12, 86, width - (RIGHT_PANEL_W + 24), height - 98, 0x1f1a17, this.highContrast ? 0.25 : 0.38).setOrigin(0, 0);
 
     for (let i = 0; i < 8; i += 1) {
       this.add.ellipse(160 + i * 110, 160 + (i % 3) * 100, 260, 80, 0x5c7a5a, 0.025);
@@ -242,13 +327,13 @@ export class LevelScene extends Phaser.Scene {
     const boardWidth = cols * TILE;
     const boardHeight = rows * TILE;
 
-    g.fillStyle(0xf2e8d5, 0.05);
+    g.fillStyle(0xf2e8d5, this.highContrast ? 0.08 : 0.05);
     g.fillRoundedRect(BOARD_LEFT, BOARD_TOP, boardWidth, boardHeight, 14);
 
-    g.lineStyle(2, 0x000000, 0.08);
+    g.lineStyle(2, 0x000000, this.highContrast ? 0.15 : 0.08);
     g.strokeRoundedRect(BOARD_LEFT, BOARD_TOP, boardWidth, boardHeight, 14);
 
-    g.lineStyle(1, 0xf2e8d5, 0.085);
+    g.lineStyle(1, 0xf2e8d5, this.highContrast ? 0.14 : 0.085);
     for (let x = 0; x <= cols; x += 1) {
       g.lineBetween(BOARD_LEFT + x * TILE, BOARD_TOP, BOARD_LEFT + x * TILE, BOARD_TOP + boardHeight);
     }
@@ -275,7 +360,7 @@ export class LevelScene extends Phaser.Scene {
     for (const [id, view] of this.entityViews.entries()) {
       if (!activeIds.has(id)) {
         this.tweens.add({
-          targets: [view.body, view.shadow, view.glyph],
+          targets: [view.body, view.shadow, view.glyph, view.gloss, view.badge],
           alpha: 0,
           scaleX: 0.8,
           scaleY: 0.8,
@@ -284,6 +369,8 @@ export class LevelScene extends Phaser.Scene {
             view.shadow.destroy();
             view.body.destroy();
             view.glyph.destroy();
+            view.gloss.destroy();
+            view.badge.destroy();
           },
         });
         this.entityViews.delete(id);
@@ -305,17 +392,20 @@ export class LevelScene extends Phaser.Scene {
         view.body.alpha = 0;
         view.glyph.alpha = 0;
         view.shadow.alpha = 0;
-        this.tweens.add({ targets: [view.body, view.glyph, view.shadow], alpha: 1, duration: 120 });
+        view.gloss.alpha = 0;
+        view.badge.alpha = 0;
+        this.tweens.add({ targets: [view.body, view.glyph, view.shadow, view.gloss, view.badge], alpha: 1, duration: 120 });
       }
 
       const nounProps = def.nounKey ? activeProps.get(def.nounKey) : undefined;
       const style = this.getVisualStyle(def, nounProps);
       const pos = this.cellToWorld(entity.x, entity.y, Math.max(0, stackIndex));
       const fontSize = this.debugEnabled ? 18 : def.glyph.length > 1 ? 24 : 32;
+      const youPulse = nounProps?.has('YOU') && !this.reducedMotion ? 0.14 * (Math.sin(this.time.now / 140) + 1) : 0;
 
       view.body.setFillStyle(style.fill, style.fillAlpha);
       view.body.setStrokeStyle(style.strokeWidth, style.stroke, style.strokeAlpha);
-      view.shadow.setFillStyle(0x000000, style.shadowAlpha);
+      view.shadow.setFillStyle(0x000000, Math.min(0.45, style.shadowAlpha + youPulse * 0.25));
       view.glyph.setColor(style.glyphColor).setFontSize(fontSize);
 
       const glyphText = this.debugEnabled ? `${def.glyph}\n${entity.x},${entity.y}` : def.glyph;
@@ -325,6 +415,8 @@ export class LevelScene extends Phaser.Scene {
       view.shadow.setDepth(depth);
       view.body.setDepth(depth + 1);
       view.glyph.setDepth(depth + 2);
+      view.gloss.setDepth(depth + 3);
+      view.badge.setDepth(depth + 4);
 
       if (animate) {
         this.tweens.add({ targets: [view.body, view.glyph], x: pos.x, y: pos.y, duration: 130, ease: 'Quad.easeOut' });
@@ -335,6 +427,20 @@ export class LevelScene extends Phaser.Scene {
         view.body.setPosition(pos.x, pos.y);
         view.glyph.setPosition(pos.x, pos.y);
       }
+
+      const badgeText = this.getBadgeText(nounProps);
+      view.badge
+        .setText(badgeText)
+        .setVisible(badgeText.length > 0)
+        .setAlpha(badgeText.length > 0 ? 0.92 : 0)
+        .setPosition(pos.x + 17, pos.y - 19);
+
+      const glossText = this.showGloss && !this.debugEnabled ? this.getGlossLabel(def) : '';
+      view.gloss
+        .setText(glossText)
+        .setVisible(glossText.length > 0)
+        .setAlpha(glossText.length > 0 ? 0.85 : 0)
+        .setPosition(pos.x, pos.y + 19);
     }
   }
 
@@ -349,9 +455,10 @@ export class LevelScene extends Phaser.Scene {
 
     if (nounProps?.has('YOU')) {
       stroke = 0xc7a24a;
-      strokeWidth = 4;
+      strokeWidth = this.highContrast ? 5 : 4;
       strokeAlpha = 1;
       shadowAlpha = 0.28;
+      fillAlpha = 1;
     }
     if (nounProps?.has('WIN')) {
       stroke = 0x5fbf71;
@@ -371,6 +478,10 @@ export class LevelScene extends Phaser.Scene {
       glyphColor = '#214651';
       stroke = 0x4f91a5;
       strokeWidth = Math.max(strokeWidth, 3);
+    }
+    if (this.highContrast) {
+      strokeAlpha = Math.max(0.95, strokeAlpha);
+      fillAlpha = Math.max(fillAlpha, 0.99);
     }
 
     return { stroke, strokeWidth, strokeAlpha, fill, fillAlpha, glyphColor, shadowAlpha };
@@ -402,11 +513,46 @@ export class LevelScene extends Phaser.Scene {
       color: '#1f1a17',
       align: 'center',
     }).setOrigin(0.5);
+    const gloss = this.add.text(0, 0, '', {
+      fontFamily: 'sans-serif',
+      fontSize: '10px',
+      color: '#1f1a17',
+      align: 'center',
+      backgroundColor: '#f2e8d5cc',
+      padding: { left: 3, right: 3, top: 0, bottom: 0 },
+    }).setOrigin(0.5).setVisible(false);
+    const badge = this.add.text(0, 0, '', {
+      fontFamily: 'sans-serif',
+      fontSize: '10px',
+      color: '#f2e8d5',
+      backgroundColor: '#1f1a17cc',
+      padding: { left: 3, right: 3, top: 0, bottom: 0 },
+    }).setOrigin(0.5).setVisible(false);
 
-    return { shadow, body, glyph: glyphText };
+    return { shadow, body, glyph: glyphText, gloss, badge };
   }
 
-  private emitEventFx(events: SimulationEvent[], snapshot: SimulationSnapshot): void {
+  private getBadgeText(nounProps?: Set<PropertyKey>): string {
+    if (!nounProps || nounProps.size === 0) {
+      return '';
+    }
+    if (nounProps.has('YOU')) return 'YOU';
+    if (nounProps.has('WIN')) return 'WIN';
+    if (nounProps.has('HOT')) return 'HOT';
+    if (nounProps.has('SINK')) return 'SINK';
+    if (nounProps.has('STOP')) return 'STOP';
+    return '';
+  }
+
+  private getGlossLabel(def: EntityDef): string {
+    const label = def.label
+      .replace(/\s+text$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return label.length > 11 ? `${label.slice(0, 10)}…` : label;
+  }
+
+  private emitEventFx(events: SimulationEvent[], snapshot: SimulationSnapshot, prevSnapshot?: SimulationSnapshot): void {
     if (!this.fxLayer || events.length === 0) {
       return;
     }
@@ -418,8 +564,23 @@ export class LevelScene extends Phaser.Scene {
 
     for (const event of events) {
       if (event.type === 'fusion') {
-        this.spawnRingFx(center.x, center.y, 0xc7a24a);
-        this.spawnSpecks(center.x, center.y, 0xd96a3a, 12);
+        const pos = (typeof event.x === 'number' && typeof event.y === 'number')
+          ? this.cellCenter(event.x, event.y)
+          : center;
+        this.spawnRingFx(pos.x, pos.y, 0xc7a24a);
+        this.spawnSpecks(pos.x, pos.y, 0xd96a3a, 12);
+        if (event.cells) {
+          this.highlightCells(event.cells, 0xc7a24a);
+        }
+      } else if (event.type === 'transform') {
+        const pos = (typeof event.x === 'number' && typeof event.y === 'number')
+          ? this.cellCenter(event.x, event.y)
+          : center;
+        this.spawnRingFx(pos.x, pos.y, 0x88b7c7, 0.9);
+        this.spawnSpecks(pos.x, pos.y, 0x88b7c7, 8);
+        if (event.cells) {
+          this.highlightCells(event.cells, 0x88b7c7);
+        }
       } else if (event.type === 'win') {
         this.spawnRingFx(center.x, center.y, 0x5fbf71, 1.6);
         this.spawnSpecks(center.x, center.y, 0x5fbf71, 20);
@@ -428,7 +589,15 @@ export class LevelScene extends Phaser.Scene {
         this.cameras.main.shake(30, 0.0015);
       } else if (event.type === 'rule-change') {
         this.spawnRingFx(center.x, center.y, 0x88b7c7, 1.15);
+        const newRuleCells = this.findNewRuleCells(prevSnapshot, snapshot);
+        if (newRuleCells.length > 0) {
+          this.highlightCells(newRuleCells, 0x88b7c7);
+        }
       }
+    }
+
+    if (prevSnapshot && !events.some((e) => e.type === 'transform')) {
+      this.highlightTransformDiffs(prevSnapshot, snapshot);
     }
   }
 
@@ -466,6 +635,66 @@ export class LevelScene extends Phaser.Scene {
     }
   }
 
+  private highlightCells(cells: [number, number][], tint: number): void {
+    for (const [x, y] of cells) {
+      const world = this.cellCenter(x, y);
+      const rect = this.add.rectangle(world.x, world.y, TILE - 12, TILE - 12, tint, 0.18).setDepth(899);
+      this.fxLayer?.add(rect);
+      this.tweens.add({
+        targets: rect,
+        alpha: 0,
+        scaleX: 1.08,
+        scaleY: 1.08,
+        duration: this.reducedMotion ? 40 : 180,
+        ease: 'Quad.easeOut',
+        onComplete: () => rect.destroy(),
+      });
+    }
+  }
+
+  private highlightTransformDiffs(prevSnapshot: SimulationSnapshot, snapshot: SimulationSnapshot): void {
+    const prevById = new Map(prevSnapshot.entities.map((e) => [e.id, e] as const));
+    for (const entity of snapshot.entities) {
+      const prev = prevById.get(entity.id);
+      if (!prev) {
+        continue;
+      }
+      if (prev.defId !== entity.defId) {
+        this.highlightCells([[entity.x, entity.y]], 0x88b7c7);
+      }
+    }
+  }
+
+  private findNewRuleCells(prevSnapshot: SimulationSnapshot | undefined, snapshot: SimulationSnapshot): [number, number][] {
+    if (!prevSnapshot) {
+      return [];
+    }
+    const prevKeys = new Set(prevSnapshot.activeRules.map((rule) => this.ruleViewKey(rule)));
+    const cells: [number, number][] = [];
+    for (const rule of snapshot.activeRules) {
+      if (prevKeys.has(this.ruleViewKey(rule))) {
+        continue;
+      }
+      if (rule.cells) {
+        cells.push(...rule.cells);
+      }
+    }
+    return cells;
+  }
+
+  private ruleViewKey(rule: ActiveRuleView): string {
+    const right = rule.kind === 'property' ? rule.property : rule.targetNoun;
+    const cells = (rule.cells ?? []).map(([x, y]) => `${x},${y}`).join(';');
+    return `${rule.kind}:${rule.noun}:${String(right)}:${cells}`;
+  }
+
+  private cellCenter(x: number, y: number): { x: number; y: number } {
+    return {
+      x: BOARD_LEFT + x * TILE + TILE / 2,
+      y: BOARD_TOP + y * TILE + TILE / 2,
+    };
+  }
+
   private pointerToCell(pointer: Phaser.Input.Pointer): CellCoord | undefined {
     const snapshot = this.lastSnapshot ?? this.simulation.getSnapshot();
     const localX = pointer.worldX - BOARD_LEFT;
@@ -499,6 +728,8 @@ export class LevelScene extends Phaser.Scene {
     }
 
     this.currentLevel = { ...this.currentLevel, entities: next };
+    this.queuedMove = undefined;
+    this.moveCooldownUntil = 0;
     this.simulation.loadLevel(this.cloneLevel(this.currentLevel));
     this.clearEntityViews();
     this.renderSnapshot(this.simulation.getSnapshot(), false);
@@ -548,6 +779,8 @@ export class LevelScene extends Phaser.Scene {
       view.shadow.destroy();
       view.body.destroy();
       view.glyph.destroy();
+      view.gloss.destroy();
+      view.badge.destroy();
     }
     this.entityViews.clear();
   }

@@ -86,6 +86,7 @@ export type SimulationEventType =
   | 'move'
   | 'blocked'
   | 'fusion'
+  | 'transform'
   | 'rule-change'
   | 'win'
   | 'undo'
@@ -95,6 +96,9 @@ export type SimulationEventType =
 export interface SimulationEvent {
   type: SimulationEventType;
   message: string;
+  x?: number;
+  y?: number;
+  cells?: [number, number][];
 }
 
 export interface ActiveRuleView {
@@ -102,6 +106,8 @@ export interface ActiveRuleView {
   noun: NounKey;
   property?: PropertyKey;
   targetNoun?: NounKey;
+  cells?: [number, number][];
+  axis?: 'horizontal' | 'vertical';
 }
 
 export interface SimulationSnapshot {

@@ -127,7 +127,7 @@ export class Simulation {
     this.moveCount += 1;
 
     this.applyFusion(events);
-    this.rebuildRules();
+    this.rebuildRules(events);
 
     const afterRuleSig = this.ruleSignature(this.activeRules);
     if (afterRuleSig !== beforeRuleSig) {
@@ -151,8 +151,8 @@ export class Simulation {
       entities: [...this.entities.values()].map((e) => ({ ...e })),
       activeRules: this.activeRules.map((rule): ActiveRuleView => (
         rule.kind === 'property'
-          ? { kind: 'property', noun: rule.noun, property: rule.property }
-          : { kind: 'transform', noun: rule.noun, targetNoun: rule.targetNoun }
+          ? { kind: 'property', noun: rule.noun, property: rule.property, cells: [...rule.cells], axis: rule.axis }
+          : { kind: 'transform', noun: rule.noun, targetNoun: rule.targetNoun, cells: [...rule.cells], axis: rule.axis }
       )),
       lastEvents: [...this.lastEvents],
     };
@@ -325,7 +325,7 @@ export class Simulation {
     }
     for (const spawn of spawns) {
       this.spawnEntity(spawn.defId, spawn.x, spawn.y);
-      events.push({ type: 'fusion', message: spawn.message });
+      events.push({ type: 'fusion', message: spawn.message, x: spawn.x, y: spawn.y, cells: [[spawn.x, spawn.y]] });
     }
   }
 
@@ -368,7 +368,7 @@ export class Simulation {
     }
   }
 
-  private rebuildRules(): void {
+  private rebuildRules(events?: SimulationEvent[]): void {
     this.activeRules = this.parseRules();
     this.activeProps = new Map();
     this.activeTransforms = new Map();
@@ -388,7 +388,7 @@ export class Simulation {
       props.add(rule.property);
     }
 
-    this.applyTransformsFromRules();
+    this.applyTransformsFromRules(events);
   }
 
   private parseRules(): ParsedRule[] {
@@ -505,10 +505,12 @@ export class Simulation {
     return rules;
   }
 
-  private applyTransformsFromRules(): void {
+  private applyTransformsFromRules(events?: SimulationEvent[]): void {
     if (this.activeTransforms.size === 0) {
       return;
     }
+
+    const summary = new Map<string, { message: string; cells: [number, number][]; x: number; y: number }>();
 
     for (const entity of this.entities.values()) {
       const def = this.getDef(entity.defId);
@@ -523,7 +525,36 @@ export class Simulation {
       if (!targetDefId) {
         continue;
       }
+      const targetDef = this.getDef(targetDefId);
       entity.defId = targetDefId;
+
+      if (events) {
+        const key = `${def.nounKey}:${targetNoun}`;
+        const existing = summary.get(key);
+        if (existing) {
+          existing.cells.push([entity.x, entity.y]);
+        } else {
+          summary.set(key, {
+            message: `${def.glyph} → ${targetDef.glyph}`,
+            cells: [[entity.x, entity.y]],
+            x: entity.x,
+            y: entity.y,
+          });
+        }
+      }
+    }
+
+    if (events) {
+      for (const item of summary.values()) {
+        const countSuffix = item.cells.length > 1 ? ` x${item.cells.length}` : '';
+        events.push({
+          type: 'transform',
+          message: `${item.message}${countSuffix}`,
+          x: item.x,
+          y: item.y,
+          cells: [...item.cells],
+        });
+      }
     }
   }
 

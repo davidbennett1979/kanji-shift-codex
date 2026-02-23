@@ -5,6 +5,13 @@ export interface HudState {
   snapshot: SimulationSnapshot;
   formattedRules: string[];
   debugEnabled: boolean;
+  eventLog: string[];
+  settings: {
+    gloss: boolean;
+    highContrast: boolean;
+    reducedMotion: boolean;
+    muted: boolean;
+  };
   editor?: {
     enabled: boolean;
     selectedLabel: string;
@@ -19,6 +26,7 @@ export class UIScene extends Phaser.Scene {
   private levelText?: Phaser.GameObjects.Text;
   private hintText?: Phaser.GameObjects.Text;
   private rulesText?: Phaser.GameObjects.Text;
+  private logText?: Phaser.GameObjects.Text;
   private statusText?: Phaser.GameObjects.Text;
   private editorText?: Phaser.GameObjects.Text;
   private toastBg?: Phaser.GameObjects.Rectangle;
@@ -71,6 +79,14 @@ export class UIScene extends Phaser.Scene {
       lineSpacing: 4,
     }).setDepth(1001);
 
+    this.logText = this.add.text(width - 248, 360, 'Events', {
+      fontFamily: 'sans-serif',
+      fontSize: '12px',
+      color: '#d4e2de',
+      wordWrap: { width: 232 },
+      lineSpacing: 3,
+    }).setDepth(1001);
+
     this.toastBg = this.add.rectangle(width / 2, height - 28, Math.min(width - 32, 640), 36, 0x130f0d, 0.92)
       .setDepth(1000)
       .setVisible(false);
@@ -85,11 +101,11 @@ export class UIScene extends Phaser.Scene {
   }
 
   updateState(state: HudState): void {
-    const { snapshot, formattedRules, debugEnabled, editor } = state;
+    const { snapshot, formattedRules, debugEnabled, editor, eventLog, settings } = state;
 
     this.levelText?.setText(snapshot.levelName);
     this.statusText?.setText(
-      `Moves: ${snapshot.moveCount}  |  ${snapshot.won ? 'CLEAR' : 'Playing'}  |  Z undo / R restart / N next / ~ debug / E editor`
+      `Moves: ${snapshot.moveCount}  |  ${snapshot.won ? 'CLEAR' : 'Playing'}  |  Z undo / R restart / N next / ~ debug / E editor | G gloss | H contrast | T motion | M mute`
     );
     this.editorText?.setText(
       editor?.enabled
@@ -100,6 +116,9 @@ export class UIScene extends Phaser.Scene {
 
     const debugLine = debugEnabled ? `\n\nDebug: ON\nEntities: ${snapshot.entities.length}` : '';
     this.rulesText?.setText(`Active Rules\n${formattedRules.length ? formattedRules.map((r) => `• ${r}`).join('\n') : '• (none)'}${debugLine}`);
+    this.logText?.setText(
+      `Event Log\n${eventLog.length ? eventLog.map((r) => `• ${r}`).join('\n') : '• (no events yet)'}\n\nToggles\n• Gloss: ${settings.gloss ? 'ON' : 'OFF'}\n• Contrast: ${settings.highContrast ? 'ON' : 'OFF'}\n• Motion: ${settings.reducedMotion ? 'Reduced' : 'Normal'}\n• Audio: ${settings.muted ? 'Muted' : 'On'}`
+    );
 
     const toast = snapshot.lastEvents[snapshot.lastEvents.length - 1];
     if (toast) {
@@ -141,6 +160,7 @@ export class UIScene extends Phaser.Scene {
     this.rightPanel?.setPosition(width - 260, 84).setSize(260, height - 84);
     this.hintText?.setPosition(width - 248, 96).setWordWrapWidth(232);
     this.rulesText?.setPosition(width - 248, 170).setWordWrapWidth(232);
+    this.logText?.setPosition(width - 248, 360).setWordWrapWidth(232);
     this.toastBg?.setPosition(width / 2, height - 28).setSize(Math.min(width - 32, 640), 36);
     this.toastText?.setPosition(width / 2, height - 28);
   }

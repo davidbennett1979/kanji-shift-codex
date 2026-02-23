@@ -3,9 +3,14 @@ import type { SimulationEvent } from '../core/model/Types';
 export class SfxManager {
   private context?: AudioContext;
   private enabled = true;
+  private muted = false;
+
+  setMuted(value: boolean): void {
+    this.muted = value;
+  }
 
   playEvents(events: SimulationEvent[]): void {
-    if (!this.enabled) {
+    if (!this.enabled || this.muted) {
       return;
     }
     for (const event of events) {
@@ -19,6 +24,10 @@ export class SfxManager {
         case 'fusion':
           this.beep(420, 0.03, 'sine', 0.03);
           this.beep(620, 0.05, 'triangle', 0.02, 0.035);
+          break;
+        case 'transform':
+          this.beep(350, 0.03, 'sine', 0.02);
+          this.beep(480, 0.05, 'triangle', 0.018, 0.02);
           break;
         case 'rule-change':
           this.beep(500, 0.02, 'sine', 0.018);
